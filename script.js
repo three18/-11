@@ -25,6 +25,54 @@ L.control.layers({
 let allMarkers = [];
 let nextId = 1;
 
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function isValidHttpUrl(value) {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+function isValidCoords(coords) {
+    return Array.isArray(coords) &&
+        coords.length === 2 &&
+        coords.every(Number.isFinite) &&
+        coords[0] >= -90 && coords[0] <= 90 &&
+        coords[1] >= -180 && coords[1] <= 180;
+}
+
+function isVisibleBySearch(data) {
+    const input = document.getElementById('search-input');
+    const query = input ? input.value.toLowerCase().trim() : '';
+    return !query || String(data.name || '').toLowerCase().includes(query);
+}
+
+function isVisibleByFilter(data) {
+    return activeFilters.length === categories.length || activeFilters.includes(data.type);
+}
+
+function updateMarkerVisibility() {
+    allMarkers.forEach(({ marker, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByFilter(data)) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+            map.removeLayer(marker);
+        }
+    });
+}
+
 // ============ КАТЕГОРИИ И ФИЛЬТРЫ ============
 const categories = [
     { emoji: '🏠', name: 'Дом' },
@@ -58,12 +106,16 @@ function createIcon(emoji) {
 function addMarkerToMap(place) {
     const id = nextId++;
     const icon = createIcon(place.type || '📍');
+    const safeName = escapeHTML(place.name || 'Без названия');
+    const safeDescription = escapeHTML(place.description || 'Нет описания');
+    const safePhoto = isValidHttpUrl(place.photo) ? escapeHTML(place.photo) : '';
+    const safeType = escapeHTML(place.type || '📍');
     
     const popupHTML = `
         <div class="popup-content">
-            <h3>${place.type || '📍'} ${place.name}</h3>
-            ${place.photo ? `<img src="${place.photo}" alt="${place.name}">` : ''}
-            <p>${place.description || 'Нет описания'}</p>
+            <h3>${safeType} ${safeName}</h3>
+            ${safePhoto ? `<img src="${safePhoto}" alt="${safeName}">` : ''}
+            <p>${safeDescription}</p>
             <div class="popup-coords">📍 ${place.coords[0].toFixed(4)}, ${place.coords[1].toFixed(4)}</div>
             <button class="btn-delete" onclick="deletePlace(${id})">🗑️ Удалить место</button>
         </div>
@@ -74,6 +126,7 @@ function addMarkerToMap(place) {
         .bindPopup(popupHTML);
     
     allMarkers.push({ id, marker, data: place });
+    updateMarkerVisibility();
     return id;
 }
 
@@ -184,7 +237,7 @@ form.addEventListener('submit', function(e) {
         coordsArray = coordsRaw.split(',').map(c => parseFloat(c.trim()));
     }
     
-    if (coordsArray.length !== 2 || isNaN(coordsArray[0]) || isNaN(coordsArray[1])) {
+    if (!isValidCoords(coordsArray)) {
         showMessage('Ошибка: выберите точку на карте или введите координаты', 'error');
         return;
     }
@@ -215,17 +268,7 @@ function showMessage(text, type = 'info') {
 }
 
 // ============ ПОИСК ============
-document.getElementById('search-input').addEventListener('input', function(e) {
-    const query = e.target.value.toLowerCase().trim();
-    allMarkers.forEach(({ marker, data }) => {
-        const matches = !query || data.name.toLowerCase().includes(query);
-        if (matches) {
-            marker.addTo(map);
-        } else {
-            map.removeLayer(marker);
-        }
-    });
-});
+document.getElementById('search-input').addEventListener('input', updateMarkerVisibility);
 
 // ============ ЭКСПОРТ В JSON ============
 document.getElementById('btn-export').addEventListener('click', function() {
@@ -265,7 +308,7 @@ document.getElementById('import-file').addEventListener('change', function(e) {
             let count = 0;
             
             places.forEach(place => {
-                if (place.name && place.coords && place.coords.length === 2) {
+                if (place.name && isValidCoords(place.coords)) {
                     const id = addMarkerToMap(place);
                     place._id = id;
                     
@@ -417,6 +460,7 @@ function initFilters() {
             applyFilters();
         });
     });
+    applyFilters();
 }
 
 function applyFilters() {
@@ -428,15 +472,7 @@ function applyFilters() {
         activeFilters.push(cb.value);
     });
     
-    allMarkers.forEach(({ marker, data }) => {
-        if (activeFilters.includes(data.type) || activeFilters.length === categories.length) {
-            if (!map.hasLayer(marker)) {
-                marker.addTo(map);
-            }
-        } else {
-            map.removeLayer(marker);
-        }
-    });
+    updateMarkerVisibility();
 }
 
 // ============ БОКОВАЯ ПАНЕЛЬ ============
@@ -451,9 +487,9 @@ function renderSidebar() {
     
     placesList.innerHTML = allMarkers.map(({ id, data }) => `
         <div class="place-item" data-id="${id}">
-            <div class="place-icon">${data.type || '📍'}</div>
+            <div class="place-icon">${escapeHTML(data.type || '📍')}</div>
             <div class="place-info">
-                <div class="place-name">${data.name}</div>
+                <div class="place-name">${escapeHTML(data.name || 'Без названия')}</div>
                 <div class="place-coords-small">${data.coords[0].toFixed(4)}, ${data.coords[1].toFixed(4)}</div>
             </div>
             <button class="btn-delete-small" onclick="deletePlace(${id})">✕</button>
