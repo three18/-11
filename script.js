@@ -20,10 +20,106 @@ L.control.layers({
     "⛰️ Рельеф": topo
 }).addTo(map);
 
+function create3DBuildingsLayer() {
+    if (typeof OSMBuildings === 'undefined') return null;
+    return new OSMBuildings(map).load('https://{s}.data.osmbuildings.org/0.2/59fcc2e8/tile/{z}/{x}/{y}.json');
+}
+
 // ============ ХРАНИЛИЩЕ МАРКЕРОВ ============
 // Все маркеры хранятся тут: { id, marker, data }
 let allMarkers = [];
+let allPolygons = [];
 let nextId = 1;
+let activeDistrictId = '';
+let isSatelliteMode = false;
+let is3DMode = false;
+let buildings3DLayer = null;
+
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function isValidHttpUrl(value) {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+function isValidCoords(coords) {
+    return Array.isArray(coords) &&
+        coords.length === 2 &&
+        coords.every(Number.isFinite) &&
+        coords[0] >= -90 && coords[0] <= 90 &&
+        coords[1] >= -180 && coords[1] <= 180;
+}
+
+function normalizePlaceId(place) {
+    const parsedId = Number(place.id);
+    if (Number.isSafeInteger(parsedId) && parsedId > 0) {
+        place.id = parsedId;
+    } else {
+        place.id = Date.now() + nextId;
+    }
+}
+
+function getStoredPlaces() {
+    try {
+        const places = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+        return Array.isArray(places) ? places : [];
+    } catch (e) {
+        console.warn('userPlaces повреждён, хранилище сброшено');
+        localStorage.removeItem('userPlaces');
+        return [];
+    }
+}
+
+function saveStoredPlaces(places) {
+    localStorage.setItem('userPlaces', JSON.stringify(places));
+}
+
+function isVisibleBySearch(data) {
+    const input = document.getElementById('search-input');
+    const query = input ? input.value.toLowerCase().trim() : '';
+    return !query || String(data.name || '').toLowerCase().includes(query);
+}
+
+function isVisibleByFilter(data) {
+    return activeFilters.length === categories.length || activeFilters.includes(data.type);
+}
+
+function isVisibleByDistrict(data) {
+    if (!activeDistrictId) return true;
+    const districtId = Number(activeDistrictId);
+    return Number(data.id) === districtId || Number(data.parentId) === districtId;
+}
+
+function updateMarkerVisibility() {
+    allMarkers.forEach(({ marker, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByFilter(data) && isVisibleByDistrict(data)) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+            map.removeLayer(marker);
+        }
+    });
+
+    allPolygons.forEach(({ polygon, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByDistrict(data)) {
+            if (!map.hasLayer(polygon)) polygon.addTo(map);
+        } else {
+            map.removeLayer(polygon);
+        }
+    });
+}
 
 // ============ КАТЕГОРИИ И ФИЛЬТРЫ ============
 const categories = [
@@ -46,7 +142,7 @@ let activeFilters = [];
 // ============ СОЗДАНИЕ ИКОНКИ ============
 function createIcon(emoji) {
     return L.divIcon({
-        html: `<div class="custom-icon">${emoji || '📍'}</div>`,
+        html: `<div class="custom-icon">${escapeHTML(emoji || '📍')}</div>`,
         className: '',
         iconSize: [32, 32],
         iconAnchor: [16, 32],
@@ -56,14 +152,19 @@ function createIcon(emoji) {
 
 // ============ ДОБАВЛЕНИЕ МАРКЕРА ============
 function addMarkerToMap(place) {
+    normalizePlaceId(place);
     const id = nextId++;
     const icon = createIcon(place.type || '📍');
+    const safeName = escapeHTML(place.name || 'Без названия');
+    const safeDescription = escapeHTML(place.description || 'Нет описания');
+    const safePhoto = isValidHttpUrl(place.photo) ? escapeHTML(place.photo) : '';
+    const safeType = escapeHTML(place.type || '📍');
     
     const popupHTML = `
         <div class="popup-content">
-            <h3>${place.type || '📍'} ${place.name}</h3>
-            ${place.photo ? `<img src="${place.photo}" alt="${place.name}">` : ''}
-            <p>${place.description || 'Нет описания'}</p>
+            <h3>${safeType} ${safeName}</h3>
+            ${safePhoto ? `<img src="${safePhoto}" alt="${safeName}">` : ''}
+            <p>${safeDescription}</p>
             <div class="popup-coords">📍 ${place.coords[0].toFixed(4)}, ${place.coords[1].toFixed(4)}</div>
             <button class="btn-delete" onclick="deletePlace(${id})">🗑️ Удалить место</button>
         </div>
@@ -74,7 +175,40 @@ function addMarkerToMap(place) {
         .bindPopup(popupHTML);
     
     allMarkers.push({ id, marker, data: place });
+    updateMarkerVisibility();
     return id;
+}
+
+function addPolygonToMap(place) {
+    if (!Array.isArray(place.polygon) || !place.polygon.every(isValidCoords)) return;
+
+    const polygon = L.polygon(place.polygon, {
+        color: '#6366f1',
+        weight: 2,
+        fillColor: '#6366f1',
+        fillOpacity: 0.12
+    }).addTo(map);
+
+    polygon.bindTooltip(escapeHTML(place.name || 'Район'));
+    allPolygons.push({ polygon, data: place });
+}
+
+function refreshDistrictFilter() {
+    const districtFilter = document.getElementById('district-filter');
+    const parentSelect = document.getElementById('inp-parent');
+    if (!districtFilter || !parentSelect) return;
+
+    const districts = allMarkers
+        .map(({ data }) => data)
+        .filter(place => !place.parentId);
+
+    const options = districts.map(place =>
+        `<option value="${place.id}">${escapeHTML(place.type || '📍')} ${escapeHTML(place.name || 'Без названия')}</option>`
+    ).join('');
+
+    districtFilter.innerHTML = `<option value="">Все районы</option>${options}`;
+    districtFilter.value = activeDistrictId;
+    parentSelect.innerHTML = `<option value="">— Нет (главная точка / район) —</option>${options}`;
 }
 
 // ============ УДАЛЕНИЕ МЕСТА ============
@@ -84,16 +218,25 @@ function deletePlace(id) {
     // Удаляем из карты
     const index = allMarkers.findIndex(m => m.id === id);
     if (index !== -1) {
+        const removedPlaceId = allMarkers[index].data.id;
         map.removeLayer(allMarkers[index].marker);
         allMarkers.splice(index, 1);
+        allPolygons = allPolygons.filter(({ polygon, data }) => {
+            if (data.id !== removedPlaceId) return true;
+            map.removeLayer(polygon);
+            return false;
+        });
+        if (activeDistrictId && Number(activeDistrictId) === removedPlaceId) activeDistrictId = '';
     }
     
     // Удаляем из localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     const filtered = localPlaces.filter(p => p._id !== id);
-    localStorage.setItem('userPlaces', JSON.stringify(filtered));
+    saveStoredPlaces(filtered);
     
     map.closePopup();
+    refreshDistrictFilter();
+    updateMarkerVisibility();
     updateSidebar();
     showMessage('Место удалено 🗑️', 'success');
 }
@@ -105,21 +248,26 @@ async function loadPlaces() {
         const response = await fetch('places.json');
         if (response.ok) {
             const data = await response.json();
-            (data.places || []).forEach(place => addMarkerToMap(place));
+            (data.places || []).forEach(place => {
+                addMarkerToMap(place);
+                addPolygonToMap(place);
+            });
         }
     } catch (e) {
         console.warn('places.json не загружен');
     }
     
     // Из localStorage (с восстановлением ID)
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.forEach(place => {
         const id = addMarkerToMap(place);
         place._id = id;
     });
     // Пересохраняем с актуальными ID
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
+    refreshDistrictFilter();
+    updateMarkerVisibility();
     updateSidebar();
 }
 
@@ -176,6 +324,7 @@ form.addEventListener('submit', function(e) {
     const coordsRaw = document.getElementById('inp-coords').value.trim();
     const photo = document.getElementById('inp-photo').value.trim();
     const description = document.getElementById('inp-desc').value.trim();
+    const parentIdRaw = document.getElementById('inp-parent').value;
     
     let coordsArray;
     if (tempCoords) {
@@ -184,23 +333,33 @@ form.addEventListener('submit', function(e) {
         coordsArray = coordsRaw.split(',').map(c => parseFloat(c.trim()));
     }
     
-    if (coordsArray.length !== 2 || isNaN(coordsArray[0]) || isNaN(coordsArray[1])) {
+    if (!isValidCoords(coordsArray)) {
         showMessage('Ошибка: выберите точку на карте или введите координаты', 'error');
         return;
     }
     
-    const newPlace = { name, type, coords: coordsArray, photo, description };
+    const newPlace = {
+        id: Date.now(),
+        name,
+        type,
+        coords: coordsArray,
+        parentId: parentIdRaw ? Number(parentIdRaw) : null,
+        photo,
+        description,
+        polygon: null
+    };
     const id = addMarkerToMap(newPlace);
     newPlace._id = id;
     
     // Сохраняем в localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.push(newPlace);
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
     map.setView(newPlace.coords, 14);
     form.reset();
     document.getElementById('btn-close-modal').click();
+    refreshDistrictFilter();
     updateSidebar();
     showMessage('Место добавлено! ✅', 'success');
 });
@@ -215,17 +374,7 @@ function showMessage(text, type = 'info') {
 }
 
 // ============ ПОИСК ============
-document.getElementById('search-input').addEventListener('input', function(e) {
-    const query = e.target.value.toLowerCase().trim();
-    allMarkers.forEach(({ marker, data }) => {
-        const matches = !query || data.name.toLowerCase().includes(query);
-        if (matches) {
-            marker.addTo(map);
-        } else {
-            map.removeLayer(marker);
-        }
-    });
-});
+document.getElementById('search-input').addEventListener('input', updateMarkerVisibility);
 
 // ============ ЭКСПОРТ В JSON ============
 document.getElementById('btn-export').addEventListener('click', function() {
@@ -265,17 +414,19 @@ document.getElementById('import-file').addEventListener('change', function(e) {
             let count = 0;
             
             places.forEach(place => {
-                if (place.name && place.coords && place.coords.length === 2) {
+                if (place.name && isValidCoords(place.coords)) {
                     const id = addMarkerToMap(place);
+                    addPolygonToMap(place);
                     place._id = id;
                     
-                    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+                    const localPlaces = getStoredPlaces();
                     localPlaces.push(place);
-                    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+                    saveStoredPlaces(localPlaces);
                     count++;
                 }
             });
             
+            refreshDistrictFilter();
             updateSidebar();
             showMessage(`Импортировано мест: ${count} 📤`, 'success');
         } catch (err) {
@@ -417,6 +568,7 @@ function initFilters() {
             applyFilters();
         });
     });
+    applyFilters();
 }
 
 function applyFilters() {
@@ -428,14 +580,54 @@ function applyFilters() {
         activeFilters.push(cb.value);
     });
     
-    allMarkers.forEach(({ marker, data }) => {
-        if (activeFilters.includes(data.type) || activeFilters.length === categories.length) {
-            if (!map.hasLayer(marker)) {
-                marker.addTo(map);
-            }
+    updateMarkerVisibility();
+}
+
+function initDistrictFilter() {
+    const districtFilter = document.getElementById('district-filter');
+    if (!districtFilter) return;
+
+    districtFilter.addEventListener('change', function() {
+        activeDistrictId = this.value;
+        updateMarkerVisibility();
+    });
+}
+
+function initMapViewButtons() {
+    const btnSatellite = document.getElementById('btn-satellite');
+    const btn3D = document.getElementById('btn-3d');
+
+    btnSatellite?.addEventListener('click', function() {
+        isSatelliteMode = !isSatelliteMode;
+        if (isSatelliteMode) {
+            map.removeLayer(osm);
+            map.removeLayer(topo);
+            satellite.addTo(map);
         } else {
-            map.removeLayer(marker);
+            map.removeLayer(satellite);
+            osm.addTo(map);
         }
+        this.classList.toggle('active', isSatelliteMode);
+    });
+
+    btn3D?.addEventListener('click', function() {
+        is3DMode = !is3DMode;
+        document.body.classList.toggle('map-3d', is3DMode);
+
+        if (is3DMode) {
+            buildings3DLayer = buildings3DLayer || create3DBuildingsLayer();
+            if (!buildings3DLayer) {
+                showMessage('3D слой не загрузился. Проверь интернет-соединение.', 'error');
+                is3DMode = false;
+                document.body.classList.remove('map-3d');
+            }
+        } else if (buildings3DLayer?.remove) {
+            buildings3DLayer.remove();
+            buildings3DLayer = null;
+        }
+
+        this.classList.toggle('active', is3DMode);
+        setTimeout(() => map.invalidateSize(), 250);
     });
 }
 
@@ -451,9 +643,9 @@ function renderSidebar() {
     
     placesList.innerHTML = allMarkers.map(({ id, data }) => `
         <div class="place-item" data-id="${id}">
-            <div class="place-icon">${data.type || '📍'}</div>
+            <div class="place-icon">${escapeHTML(data.type || '📍')}</div>
             <div class="place-info">
-                <div class="place-name">${data.name}</div>
+                <div class="place-name">${escapeHTML(data.name || 'Без названия')}</div>
                 <div class="place-coords-small">${data.coords[0].toFixed(4)}, ${data.coords[1].toFixed(4)}</div>
             </div>
             <button class="btn-delete-small" onclick="deletePlace(${id})">✕</button>
@@ -505,6 +697,8 @@ if ('serviceWorker' in navigator) {
 // Инициализация категорий и фильтров
 initCategoryPicker();
 initFilters();
+initDistrictFilter();
+initMapViewButtons();
 
 loadPlaces().then(() => {
     updateSidebar();
