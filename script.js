@@ -398,9 +398,10 @@ map.on('click', function(e) {
 
 function clearRuler() {
     rulerMode = false;
-    btnRuler.classList.remove('active');
-    rulerInfo.classList.remove('active');
-    rulerInfo.textContent = '';
+    const btnRulerClear = document.getElementById('btn-ruler');
+    if (btnRulerClear) btnRulerClear.classList.remove('active');
+    if (rulerInfo) rulerInfo.classList.remove('active');
+    if (rulerInfo) rulerInfo.textContent = '';
     map.getContainer().style.cursor = '';
     
     rulerMarkers.forEach(m => map.removeLayer(m));
@@ -533,20 +534,21 @@ function updateSidebar() {
 
 // ============ СТАРТ ============
 
-// Регистрация Service Worker для PWA
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
+// Инициализация после загрузки DOM
+document.addEventListener('DOMContentLoaded', function() {
+    // Регистрация Service Worker для PWA
+    if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')
             .then(() => console.log('Service Worker зарегистрирован'))
             .catch(err => console.log('Ошибка SW:', err));
+    }
+    
+    // Инициализация категорий и фильтров
+    initCategoryPicker();
+    initFilters();
+    initRuler();
+    
+    loadPlaces().then(() => {
+        updateSidebar();
     });
-}
-
-// Инициализация категорий и фильтров
-initCategoryPicker();
-initFilters();
-initRuler();
-
-loadPlaces().then(() => {
-    updateSidebar();
 });
