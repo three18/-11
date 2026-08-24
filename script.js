@@ -63,6 +63,30 @@ function isValidCoords(coords) {
         coords[1] >= -180 && coords[1] <= 180;
 }
 
+function normalizePlaceId(place) {
+    const parsedId = Number(place.id);
+    if (Number.isSafeInteger(parsedId) && parsedId > 0) {
+        place.id = parsedId;
+    } else {
+        place.id = Date.now() + nextId;
+    }
+}
+
+function getStoredPlaces() {
+    try {
+        const places = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+        return Array.isArray(places) ? places : [];
+    } catch (e) {
+        console.warn('userPlaces повреждён, хранилище сброшено');
+        localStorage.removeItem('userPlaces');
+        return [];
+    }
+}
+
+function saveStoredPlaces(places) {
+    localStorage.setItem('userPlaces', JSON.stringify(places));
+}
+
 function isVisibleBySearch(data) {
     const input = document.getElementById('search-input');
     const query = input ? input.value.toLowerCase().trim() : '';
@@ -76,7 +100,7 @@ function isVisibleByFilter(data) {
 function isVisibleByDistrict(data) {
     if (!activeDistrictId) return true;
     const districtId = Number(activeDistrictId);
-    return data.id === districtId || data.parentId === districtId;
+    return Number(data.id) === districtId || Number(data.parentId) === districtId;
 }
 
 function updateMarkerVisibility() {
@@ -118,7 +142,7 @@ let activeFilters = [];
 // ============ СОЗДАНИЕ ИКОНКИ ============
 function createIcon(emoji) {
     return L.divIcon({
-        html: `<div class="custom-icon">${emoji || '📍'}</div>`,
+        html: `<div class="custom-icon">${escapeHTML(emoji || '📍')}</div>`,
         className: '',
         iconSize: [32, 32],
         iconAnchor: [16, 32],
@@ -128,7 +152,7 @@ function createIcon(emoji) {
 
 // ============ ДОБАВЛЕНИЕ МАРКЕРА ============
 function addMarkerToMap(place) {
-    if (!place.id) place.id = Date.now() + nextId;
+    normalizePlaceId(place);
     const id = nextId++;
     const icon = createIcon(place.type || '📍');
     const safeName = escapeHTML(place.name || 'Без названия');
@@ -206,9 +230,9 @@ function deletePlace(id) {
     }
     
     // Удаляем из localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     const filtered = localPlaces.filter(p => p._id !== id);
-    localStorage.setItem('userPlaces', JSON.stringify(filtered));
+    saveStoredPlaces(filtered);
     
     map.closePopup();
     refreshDistrictFilter();
@@ -234,13 +258,13 @@ async function loadPlaces() {
     }
     
     // Из localStorage (с восстановлением ID)
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.forEach(place => {
         const id = addMarkerToMap(place);
         place._id = id;
     });
     // Пересохраняем с актуальными ID
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
     refreshDistrictFilter();
     updateMarkerVisibility();
@@ -328,9 +352,9 @@ form.addEventListener('submit', function(e) {
     newPlace._id = id;
     
     // Сохраняем в localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.push(newPlace);
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
     map.setView(newPlace.coords, 14);
     form.reset();
@@ -395,9 +419,9 @@ document.getElementById('import-file').addEventListener('change', function(e) {
                     addPolygonToMap(place);
                     place._id = id;
                     
-                    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+                    const localPlaces = getStoredPlaces();
                     localPlaces.push(place);
-                    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+                    saveStoredPlaces(localPlaces);
                     count++;
                 }
             });
