@@ -34,13 +34,13 @@
         <button class="icon-btn" id="btn-add-mode" title="Добавить точку">
             <span>➕</span>
         </button>
-        <button class="icon-btn" id="btn-ruler" title="Измерить расстояние">
+        <button type="button" class="icon-btn" id="btn-ruler" title="Измерить расстояние">
             <span>📏</span>
         </button>
-        <button class="icon-btn" id="btn-export" title="Экспорт в JSON">
+        <button type="button" class="icon-btn" id="btn-export" title="Экспорт в JSON">
             <span>📥</span>
         </button>
-        <button class="icon-btn" id="btn-import" title="Импорт из JSON">
+        <button type="button" class="icon-btn" id="btn-import" title="Импорт из JSON">
             <span>📤</span>
         </button>
         <input type="file" id="import-file" accept=".json" style="display:none;">
@@ -50,18 +50,18 @@
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <h2>📍 Мои места</h2>
-            <button class="icon-btn small" id="btn-toggle-sidebar">✕</button>
+            <button type="button" class="icon-btn small" id="btn-toggle-sidebar">✕</button>
         </div>
         <div class="sidebar-content" id="places-list"></div>
     </div>
-    <button class="sidebar-toggle" id="btn-open-sidebar">☰</button>
+    <button type="button" class="sidebar-toggle" id="btn-open-sidebar">☰</button>
 
     <!-- Модальное окно добавления места -->
     <div class="modal-overlay" id="modal-overlay">
         <div class="modal">
             <div class="modal-header">
                 <h3>📍 Новое место</h3>
-                <button class="icon-btn small" id="btn-close-modal">✕</button>
+                <button type="button" class="icon-btn small" id="btn-close-modal">✕</button>
             </div>
             <form id="add-form">
                 <div class="form-group">

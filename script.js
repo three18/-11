@@ -631,6 +631,91 @@ function applyFilters() {
     updateMarkerVisibility();
 }
 
+function initMovableToolbar() {
+    const toolbar = document.querySelector('.top-bar');
+    const btnLayout = document.getElementById('btn-layout');
+    if (!toolbar || !btnLayout) return;
+
+    const savedPosition = getToolbarPosition();
+    if (savedPosition) {
+        applyToolbarPosition(toolbar, savedPosition.left, savedPosition.top);
+    }
+
+    let isLayoutMode = false;
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    btnLayout.addEventListener('click', function() {
+        isLayoutMode = !isLayoutMode;
+        toolbar.classList.toggle('layout-mode', isLayoutMode);
+        this.classList.toggle('active', isLayoutMode);
+        showMessage(isLayoutMode
+            ? 'Режим перемещения: перетащите панель за любое пустое место'
+            : 'Расположение панели сохранено', 'info');
+    });
+
+    toolbar.addEventListener('pointerdown', function(e) {
+        if (!isLayoutMode || e.target.closest('button, input, select, label')) return;
+        isDragging = true;
+        const rect = toolbar.getBoundingClientRect();
+        dragOffsetX = e.clientX - rect.left;
+        dragOffsetY = e.clientY - rect.top;
+        toolbar.setPointerCapture(e.pointerId);
+        toolbar.classList.add('dragging');
+    });
+
+    toolbar.addEventListener('pointermove', function(e) {
+        if (!isDragging) return;
+        const left = clamp(e.clientX - dragOffsetX, 8, window.innerWidth - toolbar.offsetWidth - 8);
+        const top = clamp(e.clientY - dragOffsetY, 8, window.innerHeight - toolbar.offsetHeight - 8);
+        applyToolbarPosition(toolbar, left, top);
+    });
+
+    toolbar.addEventListener('pointerup', function(e) {
+        if (!isDragging) return;
+        isDragging = false;
+        toolbar.releasePointerCapture(e.pointerId);
+        toolbar.classList.remove('dragging');
+        const rect = toolbar.getBoundingClientRect();
+        saveToolbarPosition(rect.left, rect.top);
+    });
+
+    window.addEventListener('resize', function() {
+        const rect = toolbar.getBoundingClientRect();
+        applyToolbarPosition(
+            toolbar,
+            clamp(rect.left, 8, window.innerWidth - toolbar.offsetWidth - 8),
+            clamp(rect.top, 8, window.innerHeight - toolbar.offsetHeight - 8)
+        );
+    });
+}
+
+function getToolbarPosition() {
+    try {
+        const value = JSON.parse(localStorage.getItem('toolbarPosition') || 'null');
+        if (!value || !Number.isFinite(value.left) || !Number.isFinite(value.top)) return null;
+        return value;
+    } catch (e) {
+        localStorage.removeItem('toolbarPosition');
+        return null;
+    }
+}
+
+function saveToolbarPosition(left, top) {
+    localStorage.setItem('toolbarPosition', JSON.stringify({ left, top }));
+}
+
+function applyToolbarPosition(toolbar, left, top) {
+    toolbar.style.left = `${left}px`;
+    toolbar.style.top = `${top}px`;
+    toolbar.style.transform = 'none';
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 // ============ БОКОВАЯ ПАНЕЛЬ ============
 function renderSidebar() {
     const placesList = document.getElementById('places-list');
