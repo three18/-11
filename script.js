@@ -20,10 +20,106 @@ L.control.layers({
     "⛰️ Рельеф": topo
 }).addTo(map);
 
+function create3DBuildingsLayer() {
+    if (typeof OSMBuildings === 'undefined') return null;
+    return new OSMBuildings(map).load('https://{s}.data.osmbuildings.org/0.2/59fcc2e8/tile/{z}/{x}/{y}.json');
+}
+
 // ============ ХРАНИЛИЩЕ МАРКЕРОВ ============
 // Все маркеры хранятся тут: { id, marker, data }
 let allMarkers = [];
+let allPolygons = [];
 let nextId = 1;
+let activeDistrictId = '';
+let isSatelliteMode = false;
+let is3DMode = false;
+let buildings3DLayer = null;
+
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function isValidHttpUrl(value) {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+function isValidCoords(coords) {
+    return Array.isArray(coords) &&
+        coords.length === 2 &&
+        coords.every(Number.isFinite) &&
+        coords[0] >= -90 && coords[0] <= 90 &&
+        coords[1] >= -180 && coords[1] <= 180;
+}
+
+function normalizePlaceId(place) {
+    const parsedId = Number(place.id);
+    if (Number.isSafeInteger(parsedId) && parsedId > 0) {
+        place.id = parsedId;
+    } else {
+        place.id = Date.now() + nextId;
+    }
+}
+
+function getStoredPlaces() {
+    try {
+        const places = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+        return Array.isArray(places) ? places : [];
+    } catch (e) {
+        console.warn('userPlaces повреждён, хранилище сброшено');
+        localStorage.removeItem('userPlaces');
+        return [];
+    }
+}
+
+function saveStoredPlaces(places) {
+    localStorage.setItem('userPlaces', JSON.stringify(places));
+}
+
+function isVisibleBySearch(data) {
+    const input = document.getElementById('search-input');
+    const query = input ? input.value.toLowerCase().trim() : '';
+    return !query || String(data.name || '').toLowerCase().includes(query);
+}
+
+function isVisibleByFilter(data) {
+    return activeFilters.length === categories.length || activeFilters.includes(data.type);
+}
+
+function isVisibleByDistrict(data) {
+    if (!activeDistrictId) return true;
+    const districtId = Number(activeDistrictId);
+    return Number(data.id) === districtId || Number(data.parentId) === districtId;
+}
+
+function updateMarkerVisibility() {
+    allMarkers.forEach(({ marker, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByFilter(data) && isVisibleByDistrict(data)) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+            map.removeLayer(marker);
+        }
+    });
+
+    allPolygons.forEach(({ polygon, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByDistrict(data)) {
+            if (!map.hasLayer(polygon)) polygon.addTo(map);
+        } else {
+            map.removeLayer(polygon);
+        }
+    });
+}
 
 function escapeHTML(value) {
     return String(value ?? '').replace(/[&<>'"]/g, char => ({
@@ -94,7 +190,7 @@ let activeFilters = [];
 // ============ СОЗДАНИЕ ИКОНКИ ============
 function createIcon(emoji) {
     return L.divIcon({
-        html: `<div class="custom-icon">${emoji || '📍'}</div>`,
+        html: `<div class="custom-icon">${escapeHTML(emoji || '📍')}</div>`,
         className: '',
         iconSize: [32, 32],
         iconAnchor: [16, 32],
@@ -104,6 +200,7 @@ function createIcon(emoji) {
 
 // ============ ДОБАВЛЕНИЕ МАРКЕРА ============
 function addMarkerToMap(place) {
+    normalizePlaceId(place);
     const id = nextId++;
     const icon = createIcon(place.type || '📍');
     const safeName = escapeHTML(place.name || 'Без названия');
@@ -130,6 +227,38 @@ function addMarkerToMap(place) {
     return id;
 }
 
+function addPolygonToMap(place) {
+    if (!Array.isArray(place.polygon) || !place.polygon.every(isValidCoords)) return;
+
+    const polygon = L.polygon(place.polygon, {
+        color: '#6366f1',
+        weight: 2,
+        fillColor: '#6366f1',
+        fillOpacity: 0.12
+    }).addTo(map);
+
+    polygon.bindTooltip(escapeHTML(place.name || 'Район'));
+    allPolygons.push({ polygon, data: place });
+}
+
+function refreshDistrictFilter() {
+    const districtFilter = document.getElementById('district-filter');
+    const parentSelect = document.getElementById('inp-parent');
+    if (!districtFilter || !parentSelect) return;
+
+    const districts = allMarkers
+        .map(({ data }) => data)
+        .filter(place => !place.parentId);
+
+    const options = districts.map(place =>
+        `<option value="${place.id}">${escapeHTML(place.type || '📍')} ${escapeHTML(place.name || 'Без названия')}</option>`
+    ).join('');
+
+    districtFilter.innerHTML = `<option value="">Все районы</option>${options}`;
+    districtFilter.value = activeDistrictId;
+    parentSelect.innerHTML = `<option value="">— Нет (главная точка / район) —</option>${options}`;
+}
+
 // ============ УДАЛЕНИЕ МЕСТА ============
 function deletePlace(id) {
     if (!confirm('Удалить это место?')) return;
@@ -137,16 +266,25 @@ function deletePlace(id) {
     // Удаляем из карты
     const index = allMarkers.findIndex(m => m.id === id);
     if (index !== -1) {
+        const removedPlaceId = allMarkers[index].data.id;
         map.removeLayer(allMarkers[index].marker);
         allMarkers.splice(index, 1);
+        allPolygons = allPolygons.filter(({ polygon, data }) => {
+            if (data.id !== removedPlaceId) return true;
+            map.removeLayer(polygon);
+            return false;
+        });
+        if (activeDistrictId && Number(activeDistrictId) === removedPlaceId) activeDistrictId = '';
     }
     
     // Удаляем из localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     const filtered = localPlaces.filter(p => p._id !== id);
-    localStorage.setItem('userPlaces', JSON.stringify(filtered));
+    saveStoredPlaces(filtered);
     
     map.closePopup();
+    refreshDistrictFilter();
+    updateMarkerVisibility();
     updateSidebar();
     showMessage('Место удалено 🗑️', 'success');
 }
@@ -158,21 +296,26 @@ async function loadPlaces() {
         const response = await fetch('places.json');
         if (response.ok) {
             const data = await response.json();
-            (data.places || []).forEach(place => addMarkerToMap(place));
+            (data.places || []).forEach(place => {
+                addMarkerToMap(place);
+                addPolygonToMap(place);
+            });
         }
     } catch (e) {
         console.warn('places.json не загружен');
     }
     
     // Из localStorage (с восстановлением ID)
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.forEach(place => {
         const id = addMarkerToMap(place);
         place._id = id;
     });
     // Пересохраняем с актуальными ID
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
+    refreshDistrictFilter();
+    updateMarkerVisibility();
     updateSidebar();
 }
 
@@ -229,6 +372,7 @@ form.addEventListener('submit', function(e) {
     const coordsRaw = document.getElementById('inp-coords').value.trim();
     const photo = document.getElementById('inp-photo').value.trim();
     const description = document.getElementById('inp-desc').value.trim();
+    const parentIdRaw = document.getElementById('inp-parent').value;
     
     let coordsArray;
     if (tempCoords) {
@@ -242,18 +386,28 @@ form.addEventListener('submit', function(e) {
         return;
     }
     
-    const newPlace = { name, type, coords: coordsArray, photo, description };
+    const newPlace = {
+        id: Date.now(),
+        name,
+        type,
+        coords: coordsArray,
+        parentId: parentIdRaw ? Number(parentIdRaw) : null,
+        photo,
+        description,
+        polygon: null
+    };
     const id = addMarkerToMap(newPlace);
     newPlace._id = id;
     
     // Сохраняем в localStorage
-    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+    const localPlaces = getStoredPlaces();
     localPlaces.push(newPlace);
-    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+    saveStoredPlaces(localPlaces);
     
     map.setView(newPlace.coords, 14);
     form.reset();
     document.getElementById('btn-close-modal').click();
+    refreshDistrictFilter();
     updateSidebar();
     showMessage('Место добавлено! ✅', 'success');
 });
@@ -310,15 +464,17 @@ document.getElementById('import-file').addEventListener('change', function(e) {
             places.forEach(place => {
                 if (place.name && isValidCoords(place.coords)) {
                     const id = addMarkerToMap(place);
+                    addPolygonToMap(place);
                     place._id = id;
                     
-                    const localPlaces = JSON.parse(localStorage.getItem('userPlaces') || '[]');
+                    const localPlaces = getStoredPlaces();
                     localPlaces.push(place);
-                    localStorage.setItem('userPlaces', JSON.stringify(localPlaces));
+                    saveStoredPlaces(localPlaces);
                     count++;
                 }
             });
             
+            refreshDistrictFilter();
             updateSidebar();
             showMessage(`Импортировано мест: ${count} 📤`, 'success');
         } catch (err) {
@@ -480,6 +636,91 @@ function applyFilters() {
     updateMarkerVisibility();
 }
 
+function initMovableToolbar() {
+    const toolbar = document.querySelector('.top-bar');
+    const btnLayout = document.getElementById('btn-layout');
+    if (!toolbar || !btnLayout) return;
+
+    const savedPosition = getToolbarPosition();
+    if (savedPosition) {
+        applyToolbarPosition(toolbar, savedPosition.left, savedPosition.top);
+    }
+
+    let isLayoutMode = false;
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    btnLayout.addEventListener('click', function() {
+        isLayoutMode = !isLayoutMode;
+        toolbar.classList.toggle('layout-mode', isLayoutMode);
+        this.classList.toggle('active', isLayoutMode);
+        showMessage(isLayoutMode
+            ? 'Режим перемещения: перетащите панель за любое пустое место'
+            : 'Расположение панели сохранено', 'info');
+    });
+
+    toolbar.addEventListener('pointerdown', function(e) {
+        if (!isLayoutMode || e.target.closest('button, input, select, label')) return;
+        isDragging = true;
+        const rect = toolbar.getBoundingClientRect();
+        dragOffsetX = e.clientX - rect.left;
+        dragOffsetY = e.clientY - rect.top;
+        toolbar.setPointerCapture(e.pointerId);
+        toolbar.classList.add('dragging');
+    });
+
+    toolbar.addEventListener('pointermove', function(e) {
+        if (!isDragging) return;
+        const left = clamp(e.clientX - dragOffsetX, 8, window.innerWidth - toolbar.offsetWidth - 8);
+        const top = clamp(e.clientY - dragOffsetY, 8, window.innerHeight - toolbar.offsetHeight - 8);
+        applyToolbarPosition(toolbar, left, top);
+    });
+
+    toolbar.addEventListener('pointerup', function(e) {
+        if (!isDragging) return;
+        isDragging = false;
+        toolbar.releasePointerCapture(e.pointerId);
+        toolbar.classList.remove('dragging');
+        const rect = toolbar.getBoundingClientRect();
+        saveToolbarPosition(rect.left, rect.top);
+    });
+
+    window.addEventListener('resize', function() {
+        const rect = toolbar.getBoundingClientRect();
+        applyToolbarPosition(
+            toolbar,
+            clamp(rect.left, 8, window.innerWidth - toolbar.offsetWidth - 8),
+            clamp(rect.top, 8, window.innerHeight - toolbar.offsetHeight - 8)
+        );
+    });
+}
+
+function getToolbarPosition() {
+    try {
+        const value = JSON.parse(localStorage.getItem('toolbarPosition') || 'null');
+        if (!value || !Number.isFinite(value.left) || !Number.isFinite(value.top)) return null;
+        return value;
+    } catch (e) {
+        localStorage.removeItem('toolbarPosition');
+        return null;
+    }
+}
+
+function saveToolbarPosition(left, top) {
+    localStorage.setItem('toolbarPosition', JSON.stringify({ left, top }));
+}
+
+function applyToolbarPosition(toolbar, left, top) {
+    toolbar.style.left = `${left}px`;
+    toolbar.style.top = `${top}px`;
+    toolbar.style.transform = 'none';
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 // ============ БОКОВАЯ ПАНЕЛЬ ============
 function renderSidebar() {
     const placesList = document.getElementById('places-list');
@@ -551,4 +792,14 @@ document.addEventListener('DOMContentLoaded', function() {
     loadPlaces().then(() => {
         updateSidebar();
     });
+}
+
+// Инициализация категорий и фильтров
+initCategoryPicker();
+initFilters();
+initDistrictFilter();
+initMapViewButtons();
+
+loadPlaces().then(() => {
+    updateSidebar();
 });
