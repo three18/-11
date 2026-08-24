@@ -21,7 +21,16 @@
             <span class="search-icon">🔍</span>
             <input type="text" id="search-input" placeholder="Поиск мест...">
         </div>
+        <select class="district-filter" id="district-filter" title="Фильтр по району">
+            <option value="">Все районы</option>
+        </select>
         <div class="filters" id="filters"></div>
+        <button class="icon-btn" id="btn-satellite" title="Переключить спутник">
+            <span>🛰️</span>
+        </button>
+        <button class="icon-btn" id="btn-3d" title="3D вид">
+            <span>🏙️</span>
+        </button>
         <button class="icon-btn" id="btn-add-mode" title="Добавить точку">
             <span>➕</span>
         </button>
@@ -96,6 +105,7 @@
     <div class="toast" id="toast"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.osmbuildings.org/classic/0.2.2b/OSMBuildings-Leaflet.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
