@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Моя Карта</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6366f1">
+</head>
+<body>
+
+    <!-- Карта -->
+    <div id="map"></div>
+
+    <!-- Верхняя панель: фильтры + поиск -->
+    <div class="top-bar">
+        <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Поиск мест...">
+        </div>
+        <div class="filters" id="filters"></div>
+        <button class="icon-btn" id="btn-add-mode" title="Добавить точку">
+            <span>➕</span>
+        </button>
+        <button class="icon-btn" id="btn-ruler" title="Измерить расстояние">
+            <span>📏</span>
+        </button>
+        <button class="icon-btn" id="btn-export" title="Экспорт в JSON">
+            <span>📥</span>
+        </button>
+        <button class="icon-btn" id="btn-import" title="Импорт из JSON">
+            <span>📤</span>
+        </button>
+        <input type="file" id="import-file" accept=".json" style="display:none;">
+    </div>
+
+    <!-- Боковая панель со списком мест -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>📍 Мои места</h2>
+            <button class="icon-btn small" id="btn-toggle-sidebar">✕</button>
+        </div>
+        <div class="sidebar-content" id="places-list"></div>
+    </div>
+    <button class="sidebar-toggle" id="btn-open-sidebar">☰</button>
+
+    <!-- Модальное окно добавления места -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>📍 Новое место</h3>
+                <button class="icon-btn small" id="btn-close-modal">✕</button>
+            </div>
+            <form id="add-form">
+                <div class="form-group">
+                    <label>Название *</label>
+                    <input type="text" id="inp-name" required placeholder="Например: Мой дом">
+                </div>
+                <div class="form-group">
+                    <label>Категория *</label>
+                    <div class="category-picker" id="category-picker"></div>
+                </div>
+                <div class="form-group">
+                    <label>Родительская группа</label>
+                    <select id="inp-parent">
+                        <option value="">— Нет (главная точка) —</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Координаты</label>
+                    <input type="text" id="inp-coords" readonly>
+                    <small>Кликни по карте, чтобы выбрать точку</small>
+                </div>
+                <div class="form-group">
+                    <label>Описание</label>
+                    <textarea id="inp-desc" rows="2" placeholder="Что тут интересного?"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Фото (ссылка)</label>
+                    <input type="url" id="inp-photo" placeholder="https://...">
+                </div>
+                <button type="submit" class="btn-primary">💾 Сохранить</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Подсказка режима добавления -->
+    <div class="hint" id="hint" style="display:none;">
+        🎯 Кликни по карте, чтобы поставить точку
+    </div>
+
+    <!-- Уведомления -->
+    <div class="toast" id="toast"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

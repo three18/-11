@@ -1,0 +1,40 @@
+{
+  "places": [
+    {
+      "id": 1,
+      "name": "Москва (Центр)",
+      "type": "🏙️",
+      "coords": [55.7558, 37.6173],
+      "parentId": null,
+      "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Red_Square_Moscow_2011.jpg/300px-Red_Square_Moscow_2011.jpg",
+      "description": "Столица России",
+      "polygon": [
+        [55.765, 37.600],
+        [55.770, 37.620],
+        [55.760, 37.640],
+        [55.745, 37.630],
+        [55.740, 37.610]
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Красная площадь",
+      "type": "🚩",
+      "coords": [55.7539, 37.6208],
+      "parentId": 1,
+      "photo": "",
+      "description": "Главная площадь",
+      "polygon": null
+    },
+    {
+      "id": 3,
+      "name": "Парк Зарядье",
+      "type": "🌳",
+      "coords": [55.7510, 37.6280],
+      "parentId": 1,
+      "photo": "",
+      "description": "Современный парк",
+      "polygon": null
+    }
+  ]
+}
