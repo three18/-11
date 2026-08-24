@@ -695,28 +695,3 @@ body.map-3d .modal-overlay {
         width: 100%;
     }
 }
-
-/* Режим перемещения верхней панели */
-.top-bar {
-    pointer-events: auto;
-    touch-action: none;
-}
-
-.top-bar.layout-mode {
-    cursor: grab;
-    outline: 2px dashed #6366f1;
-    outline-offset: 4px;
-}
-
-.top-bar.dragging {
-    cursor: grabbing;
-    user-select: none;
-}
-
-.top-bar button,
-.top-bar input,
-.top-bar select,
-.top-bar label {
-    pointer-events: auto;
-    touch-action: manipulation;
-}

@@ -121,6 +121,54 @@ function updateMarkerVisibility() {
     });
 }
 
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function isValidHttpUrl(value) {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+function isValidCoords(coords) {
+    return Array.isArray(coords) &&
+        coords.length === 2 &&
+        coords.every(Number.isFinite) &&
+        coords[0] >= -90 && coords[0] <= 90 &&
+        coords[1] >= -180 && coords[1] <= 180;
+}
+
+function isVisibleBySearch(data) {
+    const input = document.getElementById('search-input');
+    const query = input ? input.value.toLowerCase().trim() : '';
+    return !query || String(data.name || '').toLowerCase().includes(query);
+}
+
+function isVisibleByFilter(data) {
+    return activeFilters.length === categories.length || activeFilters.includes(data.type);
+}
+
+function updateMarkerVisibility() {
+    allMarkers.forEach(({ marker, data }) => {
+        if (isVisibleBySearch(data) && isVisibleByFilter(data)) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+            map.removeLayer(marker);
+        }
+    });
+}
+
 // ============ КАТЕГОРИИ И ФИЛЬТРЫ ============
 const categories = [
     { emoji: '🏠', name: 'Дом' },
@@ -583,54 +631,6 @@ function applyFilters() {
     updateMarkerVisibility();
 }
 
-function initDistrictFilter() {
-    const districtFilter = document.getElementById('district-filter');
-    if (!districtFilter) return;
-
-    districtFilter.addEventListener('change', function() {
-        activeDistrictId = this.value;
-        updateMarkerVisibility();
-    });
-}
-
-function initMapViewButtons() {
-    const btnSatellite = document.getElementById('btn-satellite');
-    const btn3D = document.getElementById('btn-3d');
-
-    btnSatellite?.addEventListener('click', function() {
-        isSatelliteMode = !isSatelliteMode;
-        if (isSatelliteMode) {
-            map.removeLayer(osm);
-            map.removeLayer(topo);
-            satellite.addTo(map);
-        } else {
-            map.removeLayer(satellite);
-            osm.addTo(map);
-        }
-        this.classList.toggle('active', isSatelliteMode);
-    });
-
-    btn3D?.addEventListener('click', function() {
-        is3DMode = !is3DMode;
-        document.body.classList.toggle('map-3d', is3DMode);
-
-        if (is3DMode) {
-            buildings3DLayer = buildings3DLayer || create3DBuildingsLayer();
-            if (!buildings3DLayer) {
-                showMessage('3D слой не загрузился. Проверь интернет-соединение.', 'error');
-                is3DMode = false;
-                document.body.classList.remove('map-3d');
-            }
-        } else if (buildings3DLayer?.remove) {
-            buildings3DLayer.remove();
-            buildings3DLayer = null;
-        }
-
-        this.classList.toggle('active', is3DMode);
-        setTimeout(() => map.invalidateSize(), 250);
-    });
-}
-
 function initMovableToolbar() {
     const toolbar = document.querySelector('.top-bar');
     const btnLayout = document.getElementById('btn-layout');
@@ -784,7 +784,6 @@ initCategoryPicker();
 initFilters();
 initDistrictFilter();
 initMapViewButtons();
-initMovableToolbar();
 
 loadPlaces().then(() => {
     updateSidebar();
