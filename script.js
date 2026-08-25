@@ -492,24 +492,28 @@ let rulerLine = null;
 let rulerMarkers = [];
 let rulerInfo = null;
 
-// Создаём блок с информацией о расстоянии
-rulerInfo = document.createElement('div');
-rulerInfo.className = 'ruler-info';
-document.body.appendChild(rulerInfo);
+function initRuler() {
+    // Создаём блок с информацией о расстоянии
+    rulerInfo = document.createElement('div');
+    rulerInfo.className = 'ruler-info';
+    document.body.appendChild(rulerInfo);
 
-const btnRuler = document.getElementById('btn-ruler');
-btnRuler.addEventListener('click', function() {
-    rulerMode = !rulerMode;
-    btnRuler.classList.toggle('active', rulerMode);
+    const btnRuler = document.getElementById('btn-ruler');
+    if (!btnRuler) return;
     
-    if (rulerMode) {
-        rulerInfo.classList.add('active');
-        rulerInfo.textContent = '📏 Кликните на первую точку на карте';
-        map.getContainer().style.cursor = 'crosshair';
-    } else {
-        clearRuler();
-    }
-});
+    btnRuler.addEventListener('click', function() {
+        rulerMode = !rulerMode;
+        btnRuler.classList.toggle('active', rulerMode);
+
+        if (rulerMode) {
+            rulerInfo.classList.add('active');
+            rulerInfo.textContent = '📏 Кликните на первую точку на карте';
+            map.getContainer().style.cursor = 'crosshair';
+        } else {
+            clearRuler();
+        }
+    });
+}
 
 map.on('click', function(e) {
     if (!rulerMode) return;
@@ -550,9 +554,10 @@ map.on('click', function(e) {
 
 function clearRuler() {
     rulerMode = false;
-    btnRuler.classList.remove('active');
-    rulerInfo.classList.remove('active');
-    rulerInfo.textContent = '';
+    const btnRulerClear = document.getElementById('btn-ruler');
+    if (btnRulerClear) btnRulerClear.classList.remove('active');
+    if (rulerInfo) rulerInfo.classList.remove('active');
+    if (rulerInfo) rulerInfo.textContent = '';
     map.getContainer().style.cursor = '';
     
     rulerMarkers.forEach(m => map.removeLayer(m));
@@ -770,12 +775,22 @@ function updateSidebar() {
 
 // ============ СТАРТ ============
 
-// Регистрация Service Worker для PWA
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
+// Инициализация после загрузки DOM
+document.addEventListener('DOMContentLoaded', function() {
+    // Регистрация Service Worker для PWA
+    if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')
             .then(() => console.log('Service Worker зарегистрирован'))
             .catch(err => console.log('Ошибка SW:', err));
+    }
+    
+    // Инициализация категорий и фильтров
+    initCategoryPicker();
+    initFilters();
+    initRuler();
+    
+    loadPlaces().then(() => {
+        updateSidebar();
     });
 }
 
